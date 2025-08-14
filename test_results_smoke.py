@@ -52,7 +52,7 @@ def main():
         # İlk 10 ilanı yazdır
         anchors = driver.find_elements(By.XPATH, "//a[contains(@href,'jobdetail.ftl')]")
         print(f"Bulunan anchor sayısı: {len(anchors)}")
-        for i, a in enumerate(anchors[:10], 1):
+        for i, a in enumerate(anchors[:3], 1):
             title = (a.text or a.get_attribute("title") or "").strip() or "(No title)"
             href = a.get_attribute("href")
             print(f"{i:02d}. {title}\n    {href}")
