@@ -1,3 +1,51 @@
+name: Taleo Smoke Test (Strong)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install selenium==4.22.0 webdriver-manager==4.0.2
+
+      - name: Run strong smoke
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          CHROME_BIN:  ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: |
+          python test_results_smoke_strong.py
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-debug
+          path: |
+            after_search.png
+            page_source_snippet.html
+          if-no-files-found: warn
+
+
+
+
 name: Taleo Smoke Tests
 
 on:
