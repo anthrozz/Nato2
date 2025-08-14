@@ -1,0 +1,62 @@
+name: Taleo Smoke Tests
+
+on:
+  workflow_dispatch:      # Elle tetiklemek için
+  schedule:
+    - cron: "0 */6 * * *" # İstersen 3 saate indir: "0 */3 * * *"
+
+jobs:
+  run-smokes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodu al
+        uses: actions/checkout@v4
+
+      - name: Log testi
+        run: |
+          echo "✅ Workflow başladı"
+          python --version
+          uname -a
+
+      - name: Chrome kur
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Bağımlılıkları yükle
+        run: |
+          python -m pip install --upgrade pip
+          pip install selenium==4.22.0 webdriver-manager==4.0.2
+
+      - name: UI Sağlık Testi (Posting Date seçeneklerini listele)
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          CHROME_BIN:  ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: |
+          python test_ui_smoke.py
+
+      - name: Sonuç Sağlık Testi (ilk 10 ilanı yazdır)
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          CHROME_BIN:  ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: |
+          python test_results_smoke.py
+
+      - name: Ekran görüntülerini artefact olarak yükle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: taleo-smoke-screens
+          path: |
+            posting_date_panel.png
+            search_results.png
+          if-no-files-found: warn
+
+      - name: Bitti
+        run: echo "🏁 Smoke testler tamamlandı"
