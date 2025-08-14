@@ -1,0 +1,36 @@
+name: E2E (Playwright Python)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+
+    env:
+      # Settings → Secrets and variables → Actions → New repository secret
+      # STAGING_URL='https://staging.senin-site.com'
+      BASE_URL: ${{ secrets.STAGING_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install
+          # Linux için gerekli sistem bağımlılıkları
+          python -m playwright install-deps
+
+      - name: Run tests
+        run: |
+          pytest -q
