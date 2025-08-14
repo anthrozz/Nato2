@@ -1,0 +1,70 @@
+name: E2E Local App
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+
+    env:
+      BASE_URL: http://127.0.0.1:3000
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install app deps
+        run: |
+          npm ci
+
+      - name: Build app (gerekliyse)
+        run: |
+          if [ -f package.json ] && jq -e '.scripts.build' package.json >/dev/null; then
+            npm run build
+          fi
+
+      - name: Start app
+        run: |
+          # prod/start script’in neyse onu kullan
+          # ör: npm run start &  (Next.js: 0.0.0.0:3000)
+          npm run start &
+          echo $! > app.pid
+
+      - name: Wait for app to be ready
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:3000/ >/dev/null; then
+              echo "App is up!"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "App did not start in time" >&2
+          exit 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install
+          python -m playwright install-deps
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Stop app
+        if: always()
+        run: |
+          if [ -f app.pid ]; then kill $(cat app.pid) || true; fi
