@@ -1,0 +1,161 @@
+# file: test_results_smoke_strong.py
+# Amaç: Filtresiz arama yap, sonuçları (ilk 15) yazdır.
+# Notlar:
+# - Tüm iframeleri gezerek sonuçları arar.
+# - Hem klasik <a href="...jobdetail.ftl"> linklerini hem de requisition başlık aksiyonlarını dener.
+
+import time, sys
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+
+URL = "https://nato.taleo.net/careersection/2/moresearch.ftl"
+
+def init_driver():
+    opts = Options()
+    opts.add_argument("--headless=new")
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--window-size=1600,1200")
+    # Bot korumalarına takılmamak için bir kullanıcı ajanı belirtelim:
+    opts.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+    service = Service(ChromeDriverManager().install())
+    drv = webdriver.Chrome(service=service, options=opts)
+    drv.set_page_load_timeout(120)
+    return drv
+
+def click_if_exists(driver, by, sel, wait=6):
+    try:
+        el = WebDriverWait(driver, wait).until(EC.element_to_be_clickable((by, sel)))
+        driver.execute_script("arguments[0].click();", el)
+        return True
+    except Exception:
+        return False
+
+def try_search(driver):
+    # Çerez banner
+    for sel in [
+        (By.ID, "onetrust-accept-btn-handler"),
+        (By.CSS_SELECTOR, "button[aria-label*='Accept'],button[title*='Accept']")
+    ]:
+        if click_if_exists(driver, *sel, wait=2): break
+
+    # Bazı temalarda 'Search for Jobs' ya da sadece 'Search' var
+    search_clicked = False
+    for sel in [
+        (By.ID, "advancedSearchFooterInterface.searchAction"),
+        (By.XPATH, "//button[contains(.,'Search for Jobs') or contains(.,'Search') or contains(.,'Ara')]"),
+        (By.CSS_SELECTOR, "input[type='submit'][value*='Search']"),
+    ]:
+        if click_if_exists(driver, *sel, wait=8):
+            search_clicked = True
+            break
+
+    if not search_clicked:
+        # Son çare: form submit
+        try:
+            driver.execute_script("document.querySelector('form').submit();")
+            search_clicked = True
+        except Exception:
+            pass
+
+    # Sonuç alanı gelene kadar bekle (iframe içinde de olabilir)
+    time.sleep(2)
+
+def collect_results_in_context(driver, max_items=15):
+    """Bulunduğun context (ya ana sayfa ya da iframe) içinde sonuç linklerini/satırlarını topla."""
+    items = []
+
+    # 1) Klasik job detail linkleri
+    anchors = driver.find_elements(By.XPATH, "//a[contains(@href,'jobdetail.ftl')]")
+    for a in anchors:
+        title = (a.text or a.get_attribute("title") or "").strip() or "(No title)"
+        href = a.get_attribute("href")
+        if href:
+            items.append((title, href))
+    if items:
+        return items[:max_items]
+
+    # 2) Taleo başlık aksiyonları (ID kalıbı değişebilir)
+    title_actions = driver.find_elements(
+        By.XPATH,
+        "//a[starts-with(@id,'requisitionListInterface.reqTitleLinkAction') or "
+        "starts-with(@id,'requisitionListInterface.reqTitleLinkAction$')]"
+    )
+    for a in title_actions:
+        title = (a.text or a.get_attribute("title") or "").strip() or "(No title)"
+        href = a.get_attribute("href")
+        if href:
+            items.append((title, href))
+    if items:
+        return items[:max_items]
+
+    # 3) Satır bazlı (başlık span/label) + onclick → link üretebilir (her zaman mümkün değil)
+    rows = driver.find_elements(By.XPATH, "//*[contains(@id,'requisitionListInterface')]//tr")
+    for r in rows:
+        # Başlık benzeri hücre
+        t = ""
+        try:
+            t = r.find_element(By.XPATH, ".//a|.//span|.//div").text.strip()
+        except Exception:
+            pass
+        if t:
+            items.append((t, None))
+    return items[:max_items]
+
+def main():
+    driver = init_driver()
+    try:
+        driver.get(URL)
+        try_search(driver)
+
+        # Önce ana context'te dene
+        # Bir şey bulamazsak tüm iframeleri gez
+        results = collect_results_in_context(driver)
+        if not results:
+            iframes = driver.find_elements(By.TAG_NAME, "iframe")
+            print(f"Bulunan iframe sayısı: {len(iframes)}")
+            for idx, iframe in enumerate(iframes):
+                try:
+                    driver.switch_to.frame(iframe)
+                    inner = collect_results_in_context(driver)
+                    driver.switch_to.default_content()
+                    if inner:
+                        print(f"Sonuçlar iframe #{idx} içinde bulundu.")
+                        results = inner
+                        break
+                except Exception:
+                    try:
+                        driver.switch_to.default_content()
+                    except Exception:
+                        pass
+
+        # Sonuç raporu
+        if not results:
+            print("⚠️  Sonuç bulunamadı (anchor/satır). "
+                  "Muhtemelen arama tetiklenmedi, tema farklı veya erişim kısıtlaması var.")
+        else:
+            print(f"Bulunan öğe sayısı: {len(results)}")
+            for i, (title, href) in enumerate(results, 1):
+                if href:
+                    print(f"{i:02d}. {title}\n    {href}")
+                else:
+                    print(f"{i:02d}. {title} (link bulunamadı)")
+
+        # Hata ayıklama çıktıları
+        with open("page_source_snippet.html", "w", encoding="utf-8") as f:
+            html = driver.page_source
+            f.write(html[:200000])  # ilk 200 KB
+        driver.save_screenshot("after_search.png")
+        print("Kaydedildi: page_source_snippet.html, after_search.png")
+
+    finally:
+        driver.quit()
+
+if __name__ == "__main__":
+    main()
